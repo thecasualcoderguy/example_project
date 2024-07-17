@@ -1,0 +1,29 @@
+{
+    "routes": [
+        {
+            "route": "/*",
+            "allowedRoles": [
+                "authenticated"
+            ]
+        }
+    ],
+    "responseOverrides": {
+        "401": {
+            "statusCode": 302,
+            "redirect": "/.auth/login/github"
+        }
+    },
+    "navigationFallback": {
+        "rewrite": "/index.html"
+    },
+    "auth": {
+        "identityProviders": {
+            "github": {
+                "registration": {
+                    "clientIdSettingName": "CLIENT_ID_GITHUB",
+                    "clientSecretSettingName": "CLIENT_SECRET_GITHUB"
+                }
+            }
+        }
+    }
+}
