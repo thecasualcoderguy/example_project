@@ -1,117 +1,297 @@
-# Project Setup and Deployment to GitHub
-## React, Typescript, Node, Azure Functions
+# Create & Connect Cosmos Database
+## Cosmos NoSql, Azure Functions, Node, Typescript, React, Static Web App
 
-## Frontend Setup
+# Create Cosmos Database
 
-1. **Open Terminal**
-2. Create a new project directory:
-    ```sh
-    mkdir example_project
-    ```
-3. Navigate into the directory:
-    ```sh
-    cd example_project
-    ```
-4. Create a new Vite project:
-    ```sh
-    npm create vite@latest frontend -- --template react-ts
-    ```
-    - When prompted: `"create-vite@5.3.0 OKay to Proceed? (Y/n)"`, type `Y`.
-    - For more information, read: [Vite Guide](https://vitejs.dev/guide/)
-5. Navigate into the frontend directory:
-    ```sh
-    cd frontend
-    ```
-6. Install dependencies:
-    ```sh
-    npm install
-    ```
-7. Start the development server:
-    ```sh
-    npm run dev
-    ```
+1. Go to [Azure Portal](https://portal.azure.com/)
+2. Navigate to your Resource Group
+3. Create a new Resource
+4. Search for "Azure Cosmos DB" and select "Azure Cosmos DB"
+5. Click "Create"
+6. Choose "Azure Cosmos DB for NoSQL"
+    - You can select any database you want
+7. Configure the resource:
+    - **Resource Group:** `test-group`
+    - **Account Name:** `cosmos-test-group`
+    - **Location:** (US) West US
+    - **Capacity mode:** Serverless
+    - **Note:** We won't cover security in this guide, but please ensure you secure your database and follow Microsoft's best practices.
+8. Click "Review + Create"
 
-## Backend Setup
+# Create Database and Container
 
-1. **Download Azure Functions Core Tools**: [Azure Functions Core Tools](https://docs.microsoft.com/en-us/azure/azure-functions/functions-run-local?tabs=windows%2Ccsharp%2Cbash)
-2. **Open a New Terminal**
-3. Navigate to the project directory:
-    ```sh
-    cd example_project
-    ```
-4. Create a new API directory and navigate into it:
-    ```sh
-    mkdir api
-    cd api
-    ```
-5. Create a new Azure Function:
-    ```sh
-    func new --template "Http Trigger" --name "api" --worker-runtime typescript
-    ```
-6. Install dependencies:
-    ```sh
-    npm install
-    ```
-7. Start the backend server:
-    ```sh
-    npm start
-    ```
+1. Go to your new Cosmos NoSQL Resource
+2. Open Data Explorer
+3. Create a New Container:
+    - **Database id:** `test-database`
+    - **Container id:** `test-container`
+    - **Partition key:** `id`
+4. Click "OK"
 
-## Upload to GitHub
+# Get Cosmos Endpoint and Key
 
-### Step 1: Install Git
+1. Navigate to your Cosmos DB resource > Settings > Keys
+2. Note down the URL
+3. Note down the Primary Key
 
-Ensure Git is installed on your machine. You can download it from [git-scm.com](https://git-scm.com/).
+# Open Project in Visual Studio Code
 
-### Step 2: Configure Git
-
-1. **Open Terminal**
-2. Set your Git username:
+1. Navigate to your backend directory:
     ```sh
-    git config --global user.name "Your Name"
+    cd backend
     ```
-3. Set your Git email:
+2. Install the Azure Cosmos DB npm package:
     ```sh
-    git config --global user.email "your.email@example.com"
+    npm install @azure/cosmos
     ```
-4. Close the terminal.
+3. Add `local.settings.json` to `./api` and update the following:
+    - **COSMOS_ENDPOINT** from Cosmos
+    - **COSMOS_KEY** from Cosmos
 
-### Step 3: Initialize and Commit Your Project
-
-1. **Open Terminal**
-2. Navigate to your project directory:
-    ```sh
-    cd example_project
-    ```
-3. Initialize a new Git repository:
-    ```sh
-    git init
-    ```
-4. Add your files to the repository:
-    ```sh
-    git add .
-    ```
-5. Commit your changes:
-    ```sh
-    git commit -m "Initial commit"
+    ```json
+    {
+      "IsEncrypted": false,
+      "Values": {
+        "FUNCTIONS_WORKER_RUNTIME": "node",
+        "AzureWebJobsFeatureFlags": "EnableWorkerIndexing",
+        "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+        "COSMOS_DATABASE": "test-database",
+        "COSMOS_CONTAINER": "test-container",
+        "COSMOS_ENDPOINT": "https://example.documents.azure.com:443/",
+        "COSMOS_KEY": "xxxxxxxxx"
+      },
+      "Host": {
+        "LocalHttpPort": 7071,
+        "CORS": "*",
+        "CORSCredentials": false
+      }
+    }
     ```
 
-### Step 4: Create a GitHub Repository
+4. Add `getExample.ts` to `./src/functions`:
+    ```ts
+    import { CosmosClient } from "@azure/cosmos";
+    import {
+        app,
+        HttpResponseInit,
+    } from "@azure/functions";
 
-1. **Open Browser**
-2. Go to [GitHub](https://github.com)
-3. Click on the **New** button or the **+** icon and select **New repository**.
-4. Enter a repository name and optional description.
-5. Choose between public or private visibility.
-6. Click **Create repository**.
+    export async function getExample(): Promise<HttpResponseInit> {
+        try {
+            //structure of the object im going to fetch
+            type Example = {
+                id: string;
+                name: string;
+            }
 
-### Step 5: Link Your Local Repository to GitHub
+            //check all the environment variables
+            if (!process.env.COSMOS_ENDPOINT || !process.env.COSMOS_KEY || !process.env.COSMOS_DATABASE || !process.env.COSMOS_CONTAINER) {
+                return {
+                    status: 500,
+                    body: JSON.stringify({ error: "Please provide a valid Cosmos DB configuration" }),
+                };
+            }
 
-1. Add the remote repository URL:
-    ```sh
-    git remote add origin https://github.com/<<your-username>>/<<your-repo>>.git
+            //cosmos db connection
+            const databaseId = process.env.COSMOS_DATABASE
+            const containerId = process.env.COSMOS_CONTAINER
+            const options = {
+                endpoint: process.env.COSMOS_ENDPOINT,
+                key: process.env.COSMOS_KEY,
+                userAgentSuffix: "CosmosDBJavascriptQuickstart",
+            };
+
+            //Create a client to interact with the database
+            const client = new CosmosClient(options);
+
+            //Query the database to get the first 50 items
+            const results = await client.database(databaseId)
+                .container(containerId)
+                .items.query<Example>(`SELECT TOP 50 * FROM c`)
+                .fetchAll();
+
+            return {
+                status: 200,
+                body: JSON.stringify(results.resources),
+            };
+        } catch (error: any) {
+            return {
+                status: 500,
+                body: JSON.stringify({ error: error.message }),
+            };
+        }
+    }
+
+    app.http("getExample", {
+        methods: ["GET"],
+        authLevel: "anonymous",
+        handler: getExample,
+    });
     ```
-2. Push your changes to GitHub:
-    ```sh
-    git push -u origin master
+
+5. Add `upsertExample.ts` to `./src/functions`:
+    ```ts
+        import {
+    app,
+    HttpRequest,
+    HttpResponseInit,
+    } from "@azure/functions";
+    import { CosmosClient } from "@azure/cosmos";
+
+    export async function upsertExample(
+    request: HttpRequest,
+    ): Promise<HttpResponseInit> {
+    try {
+
+        //structure of the object im going to fetch
+        type Example = {
+        id: string;
+        name: string;
+        }
+
+        //check all the environment variables
+        if (!process.env.COSMOS_ENDPOINT || !process.env.COSMOS_KEY || !process.env.COSMOS_DATABASE || !process.env.COSMOS_CONTAINER) {
+        return {
+            status: 500,
+            body: JSON.stringify({ error: "Please provide a valid Cosmos DB configuration" }),
+        };
+        }
+
+        //cosmos db connection
+        const databaseId = process.env.COSMOS_DATABASE
+        const containerId = process.env.COSMOS_CONTAINER
+        const options = {
+        endpoint: process.env.COSMOS_ENDPOINT,
+        key: process.env.COSMOS_KEY,
+        userAgentSuffix: "CosmosDBJavascriptQuickstart",
+        };
+
+        //Cherck if the request has a body
+        if (!request.body) {
+        //If not, return an error
+        return {
+            status: 400,
+            body: JSON.stringify({ error: "Please provide a valid item" }),
+        };
+        }
+
+        //Parse the body of the request
+        const example = await request.json() as Example;
+
+        //Create a client to interact with the database
+        const client = new CosmosClient(options);
+
+        //Upsert the item to the database
+        const { item } = await client.database(databaseId)
+        .container(containerId)
+        .items.upsert(example);
+
+        //Read the item response from the database
+        const { resource: createdItem } = await item.read<Example>();
+
+        //Return the item created
+        const response: HttpResponseInit = {
+        status: 200,
+        body: JSON.stringify(createdItem),
+        };
+
+        return response;
+    } catch (error: any) {
+        return {
+        status: 500,
+        body: JSON.stringify({ error: error.message }),
+        };
+    }
+    }
+
+    app.http("upsertExample", {
+    methods: ["POST"],
+    authLevel: "anonymous",
+    handler: upsertExample,
+    });
+
     ```
+
+## Frontend
+
+1. Create a `.env.local` file in `./src/` and add the following:
+    ```sh
+    VITE_API_URL=http://localhost:7071
+    ```
+
+2. Replace the content of `App.tsx`:
+    ```ts
+    import { useEffect, useState } from 'react'
+    import './App.css'
+
+    const API_URL = import.meta.env.VITE_API_URL
+    type Example = {
+    id: string
+    name: string
+    }
+
+    function App() {
+    const [examples, setExamples] = useState<Example[]>([])
+
+    useEffect(() => {
+        fetchExampleDATA()
+    }, [])
+
+    const fetchExampleDATA = async () => {
+        try {
+        const url = API_URL ? `${API_URL}/api/getExample` : '/api/getExample'
+        const response = await fetch(url)
+        const data = await response.json()
+        setExamples(data)
+        } catch (error) {
+        console.error(error)
+        }
+    }
+
+    const postExampleDATA = async () => {
+        try {
+        const response = await fetch(`${API_URL}/api/upsertExample`, {
+            method: 'POST',
+            headers: {
+            'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ id: "", name: `example ${examples.length}` }),
+        })
+        const data = await response.json() as Example
+        setExamples([...examples, data])
+        }
+        catch (error) {
+        console.error
+        }
+    }
+
+    return (
+        <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        }}>
+        <h1>Examples</h1>
+        <ul>
+            {examples.map((example) => (
+            <li key={example.id}>{example.name}</li>
+            ))}
+        </ul>
+        <button onClick={postExampleDATA}>Post Example Data</button>
+        </div>
+    )
+    }
+
+    export default App
+    ```
+
+## Setting Up Production Environment
+
+1. Go to the [Azure Portal](https://portal.azure.com/)
+
+2. Set Enviorment Keys
+    1. "COSMOS_DATABASE": "test-database",
+    2. "COSMOS_CONTAINER": "test-container",
+    3. "COSMOS_ENDPOINT": "xxxxxxxxx",
+    4. "COSMOS_KEY": "xxxxxxxxx"
